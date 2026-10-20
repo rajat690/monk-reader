@@ -1,0 +1,46 @@
+{
+  "categories": [
+    {
+      "ID": 785549829,
+      "name": "Art, Books &amp; Fiction",
+      "slug": "art-books-fiction",
+      "post_count": 1
+    },
+    {
+      "ID": 785549785,
+      "name": "Cold War &amp; 21st Century Conflicts",
+      "slug": "cold-war-21st-century-conflicts",
+      "post_count": 3
+    },
+    {
+      "ID": 182,
+      "name": "Current Affairs",
+      "slug": "current-affairs",
+      "post_count": 1
+    },
+    {
+      "ID": 785549720,
+      "name": "History &amp; Geo-Politics",
+      "slug": "history-geo-politics",
+      "post_count": 17
+    },
+    {
+      "ID": 785549729,
+      "name": "Indian / South Asian History",
+      "slug": "indian-south-asian-history",
+      "post_count": 1
+    },
+    {
+      "ID": 410,
+      "name": "World History",
+      "slug": "world-history",
+      "post_count": 2
+    },
+    {
+      "ID": 142016058,
+      "name": "World War 1 &amp; World War 2",
+      "slug": "world-war-1-world-war-2",
+      "post_count": 0
+    }
+  ]
+}
