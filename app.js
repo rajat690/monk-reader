@@ -26,8 +26,43 @@ function img(p){
   }
   return images.length?images[0].URL:'';
 }
-const thumb=u=>u+(u.includes('?')?'&':'?')+'w=200';
-const get=u=>fetch(u).then(r=>{if(!r.ok)throw r.status;return r.json()});
+const thumb=u=>/^https?:/i.test(u)?u+(u.includes('?')?'&':'?')+'w=200':u;
+const BASE='/monk-reader/';
+let live=true;
+const get=(u,ms=8000)=>{const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),ms);return fetch(u,{signal:ctrl.signal}).then(r=>{if(!r.ok)throw r.status;return r.json()}).finally(()=>clearTimeout(t))};
+async function liveGet(u){if(!live)throw new Error('api down');try{return await get(u)}catch(e){live=false;throw e}}
+let archivePromise;
+function archive(){
+  if(!archivePromise){
+    archivePromise=Promise.all([
+      fetch(BASE+'data/posts.json').then(r=>{if(!r.ok)throw r.status;return r.json()}),
+      fetch(BASE+'data/categories.json').then(r=>{if(!r.ok)throw r.status;return r.json()})
+    ]).then(([posts,cats])=>({posts:posts.posts||[],categories:cats.categories||[]})).catch(err=>{archivePromise=null;throw err});
+  }
+  return archivePromise;
+}
+function localPosts({cat,q,page,number}){
+  return archive().then(({posts})=>{
+    let list=posts;
+    if(cat)list=list.filter(p=>Object.values(p.categories||{}).some(c=>c.slug===cat));
+    const words=String(q||'').toLowerCase().split(/\s+/).filter(Boolean);
+    if(words.length){
+      list=list.filter(p=>{
+        const hay=strip(`${p.title||''} ${p.excerpt||''} ${p.content||''}`).toLowerCase();
+        return words.every(w=>hay.includes(w));
+      });
+    }
+    const start=(page-1)*number;
+    return {found:list.length,posts:list.slice(start,start+number)};
+  });
+}
+function localPost(id){
+  return archive().then(({posts})=>{
+    const p=posts.find(x=>String(x.ID)===String(id));
+    if(!p)throw new Error('missing');
+    return p;
+  });
+}
 // theme
 const th=localStorage.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 document.documentElement.classList.toggle('dark',th==='dark');
@@ -38,12 +73,13 @@ async function home(){
   app.innerHTML=`<section class="hero"><h1>The Monk Who Loved History</h1><p>History, Geopolitics &amp; Global Faultlines in the 21st Century</p></section>
   <div class="tools"><input id="q" type="search" placeholder="Search posts…" value="${esc(st.q)}"><div class="chips" id="chips"></div></div><div id="list"><p class="muted">Loading posts…</p></div>`;
   const q=document.getElementById('q');let t;q.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{st.q=q.value;load(true)},350)};
-  get(`${API}/categories?number=100`).then(d=>{
-    const cats=d.categories.filter(c=>c.post_count>0).sort((a,b)=>b.post_count-a.post_count);
+  const showCats=cats=>{
     const ch=document.getElementById('chips');if(!ch)return;
-    ch.innerHTML=[{slug:'',name:'All'},...cats].map(c=>`<button class="chip ${c.slug===st.cat?'on':''}" data-s="${c.slug}">${c.name}</button>`).join('');
+    const list=cats.filter(c=>c.post_count>0).sort((a,b)=>b.post_count-a.post_count);
+    ch.innerHTML=[{slug:'',name:'All'},...list].map(c=>`<button class="chip ${c.slug===st.cat?'on':''}" data-s="${c.slug}">${c.name}</button>`).join('');
     ch.onclick=e=>{const s=e.target.dataset.s;if(s===undefined)return;st.cat=s;ch.querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.s===s));load(true)};
-  }).catch(()=>{});
+  };
+  liveGet(`${API}/categories?number=100`).then(d=>showCats(d.categories)).catch(()=>archive().then(d=>showCats(d.categories)).catch(()=>{}));
   load(true);
 }
 async function load(reset){
@@ -51,7 +87,10 @@ async function load(reset){
   const p=new URLSearchParams({number:10,page:st.page,fields:'ID,slug,title,date,excerpt,featured_image,post_thumbnail,attachments,content'});
   if(st.cat)p.set('category',st.cat);if(st.q)p.set('search',st.q);
   const list=document.getElementById('list');
-  try{const d=await get(`${API}/posts/?${p}`);st.posts.push(...d.posts);st.found=d.found}
+  try{
+    const d=await liveGet(`${API}/posts/?${p}`).catch(()=>localPosts({cat:st.cat,q:st.q,page:st.page,number:10}));
+    st.posts.push(...d.posts);st.found=d.found;
+  }
   catch(e){list.innerHTML='<p class="muted">Could not load posts. You may be offline.</p>';return}
   if(!document.getElementById('list'))return;
   list.innerHTML=st.posts.length?st.posts.map(x=>`<a class="card" href="#/post/${x.ID}"><div class="t"><h2>${x.title}</h2><p>${esc(strip(x.excerpt))}</p><div class="meta">${fmt(x.date)} · ${mins(x)} min read</div></div>${img(x)?`<img loading="lazy" src="${esc(thumb(img(x)))}" alt="">`:''}</a>`).join(''):'<p class="muted">No posts found.</p>';
@@ -59,7 +98,7 @@ async function load(reset){
 }
 async function post(id){
   app.innerHTML='<p class="muted">Loading…</p>';window.scrollTo(0,0);
-  try{const p=await get(`${API}/posts/${id}`);
+  try{const p=await liveGet(`${API}/posts/${id}`).catch(()=>localPost(id));
     document.title=strip(p.title)+' – The Monk Who Loved History';
     app.innerHTML=`<a class="back" href="#/">← All posts</a><article><h1>${p.title}</h1><div class="meta">Rajat Banerjee · ${fmt(p.date)} · ${mins(p)} min read</div>${img(p)?`<img class="cover" src="${esc(img(p))}" alt="">`:''}<div class="body">${p.content}</div></article>${subBox()}<p><a class="back" href="${p.URL}" target="_blank">View on WordPress ↗</a></p>`;
   }catch(e){app.innerHTML='<p class="muted">Could not load this post. You may be offline.</p><a href="#/">Back</a>'}

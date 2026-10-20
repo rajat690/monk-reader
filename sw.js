@@ -1,4 +1,4 @@
-const C='monk-v2',SHELL=['/monk-reader/','/monk-reader/index.html','/monk-reader/style.css','/monk-reader/app.js','/monk-reader/manifest.webmanifest','/monk-reader/icons/icon-192.png','/monk-reader/icons/icon-512.png'];
+const C='monk-v3',SHELL=['/monk-reader/','/monk-reader/index.html','/monk-reader/style.css','/monk-reader/app.js','/monk-reader/manifest.webmanifest','/monk-reader/icons/icon-192.png','/monk-reader/icons/icon-512.png','/monk-reader/data/posts.json','/monk-reader/data/categories.json'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(SHELL)));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim()});
 self.addEventListener('fetch',e=>{const r=e.request;if(r.method!=='GET')return;
