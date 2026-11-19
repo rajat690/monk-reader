@@ -25,3 +25,4 @@ article h1{font-family:Georgia,serif;font-size:2rem;line-height:1.2;margin:.3em 
 .cta{border:1px solid var(--line);border-radius:10px;padding:20px;text-align:center;margin:30px 0;background:var(--card)}
 footer{text-align:center;color:var(--muted);font-size:.8rem;padding:20px}
 .more{display:block;margin:20px auto;padding:10px 20px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;cursor:pointer}
+.fb-origin{color:var(--muted);font-size:.85rem;border-left:3px solid var(--muted);padding-left:.6rem}
