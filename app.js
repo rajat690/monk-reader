@@ -41,19 +41,45 @@ function archive(){
   }
   return archivePromise;
 }
-// Facebook Archive: kept in data/facebook.json so the weekly WordPress backup never overwrites it
-const FB='facebook-archive';
+// Facebook Archive is stored apart from the weekly WordPress backup.
+// English items are in the default feed; Bengali items only under their own chip.
+const FB_EN='facebook-archive-en';
+const FB_BN='facebook-archive-bn';
+const SERIES='Amader Mahabharat';
 let fbPromise;
 function fbData(){
   if(!fbPromise)fbPromise=fetch(BASE+'data/facebook.json').then(r=>{if(!r.ok)throw r.status;return r.json()}).catch(err=>{fbPromise=null;throw err});
   return fbPromise;
 }
-function fbList(cat,q){
-  if(cat&&cat!==FB)return Promise.resolve([]);
+function fbMatch(p,words){
+  if(!words.length)return true;
+  const hay=strip(`${p.title||''} ${p.content||''} ${p.alt_text||''}`).toLowerCase();
+  return words.every(w=>hay.includes(w));
+}
+let section=localStorage.section==='bn'?'bn':'en';
+function paintSection(){
+  const b=document.getElementById('langsec');
+  if(b)b.textContent=section==='bn'?'English Blogs':'বাংলা ব্লগ / Bengali Blogs';
+  document.body.classList.toggle('bn-mode',section==='bn');
+}
+function setSection(next){
+  section=next==='bn'?'bn':'en';
+  localStorage.section=section;
+  paintSection();
+}
+function fbList(which,q,series){
   return fbData().then(d=>{
     const words=String(q||'').toLowerCase().split(/\s+/).filter(Boolean);
-    return (d.posts||[]).filter(p=>!words.length||words.every(w=>strip(`${p.title} ${p.content}`).toLowerCase().includes(w)));
+    let list=(d.posts||[]).filter(p=>p.section===which&&fbMatch(p,words));
+    if(series)return list.filter(p=>p.series===series).sort((a,b)=>(a.part||0)-(b.part||0));
+    return list.sort((a,b)=>new Date(b.date)-new Date(a.date)||String(a.ID).localeCompare(String(b.ID)));
   }).catch(()=>[]);
+}
+async function allWp(q){
+  const params=new URLSearchParams({number:100,page:1,fields:'ID,slug,title,date,excerpt,featured_image,post_thumbnail,attachments,content'});
+  if(q)params.set('search',q);
+  try{const d=await liveGet(`${API}/posts/?${params}`);return d.posts||[]}
+  catch(e){const d=await localPosts({cat:'',q,page:1,number:100});return d.posts||[]}
 }
 const isFb=id=>Number(id)>=900000;
 function localPosts({cat,q,page,number}){
@@ -82,50 +108,95 @@ function localPost(id){
 const th=localStorage.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 document.documentElement.classList.toggle('dark',th==='dark');
 document.getElementById('theme').onclick=()=>{const d=document.documentElement.classList.toggle('dark');localStorage.theme=d?'dark':'light'};
+paintSection();
+document.getElementById('langsec').onclick=()=>{setSection(section==='bn'?'en':'bn');st.cat='';st.q='';if(location.hash&&location.hash!=='#/')location.hash='#/';else home()};
 const subBox=()=>`<div class="cta"><h3 style="font-family:Georgia,serif;margin-top:0">Enjoyed this?</h3><p class="muted">Get new essays on history & geopolitics in your inbox.</p><a class="sub" href="${FOLLOW}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">Subscribe for free</a></div>`;
 
 async function home(){
-  app.innerHTML=`<section class="hero"><h1>The Monk Who Loved History</h1><p>History, Geopolitics &amp; Global Faultlines in the 21st Century</p></section>
-  <div class="tools"><input id="q" type="search" placeholder="Search posts…" value="${esc(st.q)}"><div class="chips" id="chips"></div></div><div id="list"><p class="muted">Loading posts…</p></div>`;
+  const bn=section==='bn';
+  app.innerHTML=`<section class="hero${bn?' bn':''}"><h1>${bn?'ফেসবুক আর্কাইভ':'The Monk Who Loved History'}</h1><p>${bn?'৫২টি বাংলা ব্লগ':'History, Geopolitics &amp; Global Faultlines in the 21st Century'}</p></section>
+  <div class="tools"><input id="q" type="search" placeholder="${bn?'খুঁজুন…':'Search posts…'}" value="${esc(st.q)}"><div class="chips" id="chips"></div></div><div id="list"><p class="muted">Loading posts…</p></div>`;
   const q=document.getElementById('q');let t;q.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{st.q=q.value;load(true)},350)};
   const showCats=cats=>{
     const ch=document.getElementById('chips');if(!ch)return;
-    const list=cats.filter(c=>c.post_count>0).sort((a,b)=>b.post_count-a.post_count);
-    ch.innerHTML=[{slug:'',name:'All'},...list].map(c=>`<button class="chip ${c.slug===st.cat?'on':''}" data-s="${c.slug}">${c.name}</button>`).join('');
+    if(bn){ch.innerHTML=`<button class="chip ${st.cat===SERIES?'on':''}" data-s="${SERIES}">আমাদের মহাভারত</button><button class="chip ${st.cat===''?'on':''}" data-s="">সব</button>`;
+      ch.onclick=e=>{const s=e.target.dataset.s;if(s===undefined)return;st.cat=s;ch.querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.s===s));load(true)};
+      return}
+    const list=cats.filter(c=>c.post_count>0&&c.slug!==FB_BN).sort((a,b)=>b.post_count-a.post_count);
+    const seriesChip={slug:SERIES,name:'Amader Mahabharat'};
+    ch.innerHTML=[{slug:'',name:'All'},...list,seriesChip].map(c=>`<button class="chip ${c.slug===st.cat?'on':''}" data-s="${c.slug}">${c.name}</button>`).join('');
     ch.onclick=e=>{const s=e.target.dataset.s;if(s===undefined)return;st.cat=s;ch.querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.s===s));load(true)};
   };
-  const withFb=cats=>fbData().then(d=>[...cats.filter(c=>c.slug!==FB),d.category]).catch(()=>cats).then(showCats);
-  liveGet(`${API}/categories?number=100`).then(d=>withFb(d.categories)).catch(()=>archive().then(d=>withFb(d.categories)).catch(()=>withFb([])));
+  if(bn)showCats([]);
+  else{
+    const withFb=cats=>fbData().then(d=>{
+      const en=(d.categories||[]).find(c=>c.slug===FB_EN);
+      return [...cats.filter(c=>c.slug!==FB_EN&&c.slug!==FB_BN),...(en?[en]:[])];
+    }).catch(()=>cats).then(showCats);
+    liveGet(`${API}/categories?number=100`).then(d=>withFb(d.categories)).catch(()=>archive().then(d=>withFb(d.categories)).catch(()=>withFb([])));
+  }
   load(true);
 }
+function cardHtml(x){
+  const bn=x.section==='bn'||section==='bn';
+  const when=x.display_date||fmt(x.date);
+  const archive=(x.origin==='written'?(bn?' · প্রথম দিকের লেখা':' · Early blog'):x.source?(bn?' · ফেসবুক আর্কাইভ':' · Facebook Archive'):'')+(x.reshared?' · Reshared':'');
+  return `<a class="card${bn?' bn':''}" href="#/post/${x.ID}"><div class="t"><h2>${x.title}</h2><p>${esc(strip(x.excerpt||''))}</p><div class="meta">${when} · ${mins(x)} min read${archive}</div></div>${img(x)?`<img loading="lazy" src="${esc(thumb(img(x)))}" alt="">`:''}</a>`;
+}
 async function load(reset){
-  if(reset){st.page=1;st.posts=[];st.wpDone=st.cat===FB;st.wpFound=0;st.fbOff=0}
-  const p=new URLSearchParams({number:10,page:st.page,fields:'ID,slug,title,date,excerpt,featured_image,post_thumbnail,attachments,content'});
-  if(st.cat)p.set('category',st.cat);if(st.q)p.set('search',st.q);
+  if(reset){st.page=1;st.posts=[];st.bundle=null}
   const list=document.getElementById('list');
-  const fb=await fbList(st.cat,st.q);
-  let added=0,wpFailed=false;
-  if(!st.wpDone){
+  const bundled=section==='bn'||st.cat===FB_EN||st.cat===SERIES||!st.cat;
+  if(bundled){
+    if(!st.bundle){
+      try{
+        if(section==='bn')st.bundle=await fbList('bn',st.q,st.cat===SERIES?SERIES:'');
+        else if(st.cat===FB_EN)st.bundle=await fbList('en',st.q);
+        else if(st.cat===SERIES)st.bundle=await fbList('en',st.q,SERIES);
+        else{
+          const wp=await allWp(st.q);
+          const fb=await fbList('en',st.q);
+          st.bundle=[...wp,...fb].sort((a,b)=>new Date(b.date)-new Date(a.date));
+        }
+      }catch(e){
+        if(list)list.innerHTML='<p class="muted">Could not load posts. You may be offline.</p>';
+        return;
+      }
+    }
+    const start=(st.page-1)*10;
+    st.posts.push(...st.bundle.slice(start,start+10));
+    st.found=st.bundle.length;
+    st.page++;
+  }else{
+    const p=new URLSearchParams({number:10,page:st.page,fields:'ID,slug,title,date,excerpt,featured_image,post_thumbnail,attachments,content'});
+    if(st.cat)p.set('category',st.cat);if(st.q)p.set('search',st.q);
     try{
       const d=await liveGet(`${API}/posts/?${p}`).catch(()=>localPosts({cat:st.cat,q:st.q,page:st.page,number:10}));
-      st.posts.push(...d.posts);added=d.posts.length;st.wpFound=d.found;st.page++;
-      if(!d.posts.length||st.posts.length>=d.found)st.wpDone=true;
-    }catch(e){st.wpDone=true;wpFailed=true}
+      st.posts.push(...d.posts);st.found=d.found;st.page++;
+    }catch(e){if(list)list.innerHTML='<p class="muted">Could not load posts. You may be offline.</p>';return}
   }
-  // after WordPress posts run out, continue with the Facebook Archive (newest first)
-  if(st.wpDone&&added<10){const more=fb.slice(st.fbOff,st.fbOff+10-added);st.fbOff+=more.length;st.posts.push(...more)}
-  st.found=st.wpFound+fb.length;
   if(!document.getElementById('list'))return;
-  if(wpFailed&&!st.posts.length){list.innerHTML='<p class="muted">Could not load posts. You may be offline.</p>';return}
-  list.innerHTML=st.posts.length?st.posts.map(x=>`<a class="card" href="#/post/${x.ID}"><div class="t"><h2>${x.title}</h2><p>${esc(strip(x.excerpt))}</p><div class="meta">${fmt(x.date)} · ${mins(x)} min read${x.source?` · Facebook Archive${x.reshared?' · Reshared':''}`:''}</div></div>${img(x)?`<img loading="lazy" src="${esc(thumb(img(x)))}" alt="">`:''}</a>`).join(''):'<p class="muted">No posts found.</p>';
-  if(st.posts.length<st.found){const b=document.createElement('button');b.className='more';b.textContent='Load more';b.onclick=()=>load();list.append(b)}
+  list.innerHTML=st.posts.length?st.posts.map(cardHtml).join(''):'<p class="muted">No posts found.</p>';
+  if(st.posts.length<st.found){const b=document.createElement('button');b.className='more';b.textContent=section==='bn'?'আরও পড়ুন':'Load more';b.onclick=()=>load();list.append(b)}
 }
 async function post(id){
   app.innerHTML='<p class="muted">Loading…</p>';window.scrollTo(0,0);
   try{const p=isFb(id)?await fbData().then(d=>{const x=d.posts.find(y=>y.ID===String(id));if(!x)throw new Error('missing');return x}):await liveGet(`${API}/posts/${id}`).catch(()=>localPost(id));
     document.title=strip(p.title)+' – The Monk Who Loved History';
-    app.innerHTML=`<a class="back" href="#/">← All posts</a><article><h1>${p.title}</h1><div class="meta">Rajat Banerjee · ${fmt(p.date)} · ${mins(p)} min read</div>${img(p)?`<img class="cover" src="${esc(img(p))}" alt="">`:''}<div class="body">${p.content}</div></article>${subBox()}${p.URL?`<p><a class="back" href="${p.URL}" target="_blank">View on WordPress ↗</a></p>`:''}`;
+    const bn=p.section==='bn';
+    const series=await seriesBox(p);
+    app.innerHTML=`<a class="back" href="#/">← ${bn?'সব লেখা':'All posts'}</a>${series}<article class="${bn?'bn':''}"><h1>${p.title}</h1><div class="meta">Rajat Banerjee · ${p.display_date||fmt(p.date)} · ${mins(p)} min read${p.reshared?' · Reshared':''}</div>${img(p)?`<img class="cover" src="${esc(img(p))}" alt="">`:''}<div class="body${bn?' bn':''}">${p.content}</div></article>${series}${subBox()}${p.URL?`<p><a class="back" href="${p.URL}" target="_blank">View on WordPress ↗</a></p>`:''}`;
   }catch(e){app.innerHTML='<p class="muted">Could not load this post. You may be offline.</p><a href="#/">Back</a>'}
+}
+async function seriesBox(p){
+  if(!p.series)return '';
+  const parts=await fbList(p.section,'',p.series);
+  const i=parts.findIndex(x=>String(x.ID)===String(p.ID));
+  const prev=i>0?parts[i-1]:null,next=i>=0&&i<parts.length-1?parts[i+1]:null;
+  const bn=p.section==='bn';
+  const links=parts.map(x=>`<a class="chip ${String(x.ID)===String(p.ID)?'on':''}" href="#/post/${x.ID}">${bn?'পর্ব':'Part'} ${x.part}</a>`).join('');
+  const nav=`${prev?`<a class="back" href="#/post/${prev.ID}">← ${bn?'আগের পর্ব':'Previous part'}</a>`:''}${next?`<a class="back" href="#/post/${next.ID}">${bn?'পরের পর্ব':'Next part'} →</a>`:''}`;
+  return `<div class="series-box"><p>${bn?'আমাদের মহাভারত':'Amader Mahabharat'}</p><div class="series-parts">${links}</div><div class="series-nav">${nav}</div></div>`;
 }
 function about(){
   document.title='About – The Monk Who Loved History';
